@@ -13,11 +13,9 @@
         import * as duckdbWasm from "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.1-dev106.0/+esm";
         
         async function init() {
-            // Initialize Pyodide
             let pyodide = await loadPyodide();
             await pyodide.loadPackage("numpy");
             
-            // Initialize DuckDB
             const JSDELIVR_BUNDLES = duckdbWasm.getJsDelivrBundles();
             const bundle = await duckdbWasm.selectBundle(JSDELIVR_BUNDLES);
             const worker_url = URL.createObjectURL(
@@ -32,30 +30,24 @@
             await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
             const conn = await db.connect();
             
-            // Make DuckDB connection available to Python
-            window.duckdb_conn = conn;
+            // Expose connection to Python global namespace
+            pyodide.globals.set('duckdb_conn', conn);
             
-            // Create Python wrapper functions
             await pyodide.runPythonAsync(`
-                from pyodide.ffi import create_proxy
+                from pyodide.ffi import create_proxy, to_js
                 import numpy as np
 
                 def query_duckdb(sql, params=None):
-                    conn = create_proxy(duckdb_conn)
                     if params:
-                        result = conn.query(sql, params).then(lambda x: x.toArray())
+                        result = duckdb_conn.query(sql, to_js(params)).then(lambda x: x.toArray())
                     else:
-                        result = conn.query(sql).then(lambda x: x.toArray())
+                        result = duckdb_conn.query(sql).then(lambda x: x.toArray())
                     return result.then(lambda x: np.array(x))
             `);
             
-            // Test the integration
             const result = await pyodide.runPythonAsync(`
-                # Install and load spatial extension
                 query_duckdb("INSTALL spatial;")
                 query_duckdb("LOAD spatial;")
-                
-                # Run a test query
                 result = query_duckdb("SELECT * FROM generate_series(0, 5) AS t(v);")
                 result.tolist()
             `);
