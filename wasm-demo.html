@@ -46,9 +46,12 @@
         await conn.query("INSTALL spatial;");
         // load the spatial extension
         await conn.query("LOAD spatial;");
-        await conn.prepare("SELECT * FROM duckdb_extensions();").then((stmt) => {
-          console.log(stmt.query().toArray());
-        });
+        
+        const extensions = await conn.prepare(
+            "SELECT * FROM duckdb_extensions();"
+        );
+        console.log((await extensions.query()).toArray());
+        
         // Prepare query
         const stmt = await conn.prepare(
           `SELECT v + ? FROM generate_series(0, 10000) AS t(v);`
