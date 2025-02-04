@@ -34,24 +34,28 @@
             
             const result = await pyodide.runPythonAsync(`
                 from pyodide.ffi import create_proxy, to_js
+                from js import Promise
                 import numpy as np
-                import asyncio
                 
-                async def query_duckdb(sql, params=None):
+                def query_duckdb(sql, params=None):
+                    def handle_result(result):
+                        array_data = result.toArray()
+                        return np.array(array_data)
+                    
                     if params:
-                        result = await duckdb_conn.query(sql, to_js(params))
+                        promise = duckdb_conn.query(sql, to_js(params))
                     else:
-                        result = await duckdb_conn.query(sql)
-                    return np.array(await result.toArray())
+                        promise = duckdb_conn.query(sql)
+                    
+                    return promise.then(handle_result)
 
-                async def run_queries():
-                    await query_duckdb("INSTALL spatial;")
-                    await query_duckdb("LOAD spatial;")
-                    result = await query_duckdb("SELECT * FROM generate_series(0, 5) AS t(v);")
-                    return result.tolist()
-
-                loop = asyncio.get_event_loop()
-                loop.run_until_complete(run_queries())
+                # Run queries sequentially
+                promise1 = query_duckdb("INSTALL spatial;")
+                promise2 = promise1.then(lambda _: query_duckdb("LOAD spatial;"))
+                result = promise2.then(lambda _: query_duckdb("SELECT * FROM generate_series(0, 5) AS t(v);"))
+                
+                # Wait for final result
+                result.then(lambda x: x.tolist())
             `);
             
             document.getElementById('output').textContent = JSON.stringify(result, null, 2);
