@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DuckDB-WASM with Pyodide</title>
+</head>
+<body>
+    <h1>DuckDB-WASM with Pyodide</h1>
+    <pre id="output">Loading...</pre>
+    
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
+    <script type="module">
+        import * as duckdbWasm from "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.1-dev106.0/+esm";
+        
+        async function init() {
+            let pyodide = await loadPyodide();
+            await pyodide.loadPackage("numpy");
+
+            const JSDELIVR_BUNDLES = duckdbWasm.getJsDelivrBundles();
+            const bundle = await duckdbWasm.selectBundle(JSDELIVR_BUNDLES);
+            const worker_url = URL.createObjectURL(
+                new Blob([`importScripts("${bundle.mainWorker}");`], { type: "text/javascript" })
+            );
+
+            const worker = new Worker(worker_url);
+            const logger = new duckdbWasm.ConsoleLogger();
+            const db = new duckdbWasm.AsyncDuckDB(logger, worker);
+            await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+            const conn = await db.connect();
+
+            pyodide.globals.set('duckdb_conn', conn);
+
+            // 
+            // https://github.com/opengeospatial/geoparquet/blob/main/examples/example.parquet
+            const parquet_url = "https://raw.githubusercontent.com/opengeospatial/geoparquet/main/examples/example.parquet";
+            //"https://raw.githubusercontent.com/duckdb/duckdb/main/data/geoparquet/data-linestring-encoding_native.parquet";
+            //"https://github.com/duckdb/duckdb/raw/refs/heads/main/data/geoparquet/data-linestring-encoding_native.parquet";
+            //https://github.com/duckdb/duckdb/blob/3240832cddb955d4240cf2d3adcc053b77c88717/data/geoparquet/data-linestring-encoding_native.parquet
+            //data/geoparquet/data-linestring-encoding_native.parquet
+            // https://raw.githubusercontent.com/kimmolinna/parquet_public/master
+            //"https://github.com/duckdb/duckdb/raw/main/data/geoparquet/data-linestring-encoding_native.parquet";
+
+            const result = await pyodide.runPythonAsync(`
+                from pyodide.ffi import to_js
+                from js import Promise
+                import numpy as np
+                
+                async def query_duckdb(sql):
+                    result = await duckdb_conn.query(sql)
+                    return to_js(result.toArray())
+
+                # Read remote Parquet file
+                await query_duckdb("INSTALL spatial;")
+                await query_duckdb("LOAD spatial;")
+                table_result = await query_duckdb("SELECT * FROM read_parquet('${parquet_url}');")
+                table_result
+            `);
+
+            //document.getElementById('output').textContent = JSON.stringify(result, null, 2);
+            // wasm-pyodide-integration copy.html:57  Uncaught (in promise) TypeError: Do not know how to serialize a BigInt
+            // at JSON.stringify (<anonymous>)
+            // at init (wasm-pyodide-integration copy.html:57:66)
+
+            // document.getElementById('output').textContent = JSON;
+            // Just print it  
+            document.getElementById('output').textContent = result;
+
+            // Create a table for the result
+            const table = document.createElement('table');
+            table.style.border = '1px solid black';
+            table.style.borderCollapse = 'collapse';
+            document.body.appendChild(table);
+
+            // Create the header row
+            const headerRow = document.createElement('tr');
+            table.appendChild(headerRow);
+
+            for (const key of Object.keys(result[0])) {
+                const th = document.createElement('th');
+                th.textContent = key;
+                th.style.border = '1px solid black';
+                th.style.padding = '2px'; // Adjust padding
+                th.style.lineHeight = '1'; // Adjust line-height
+                headerRow.appendChild(th);
+            }
+
+            // Create the data rows
+            for (const row of result) {
+                const tr = document.createElement('tr');
+                table.appendChild(tr);
+
+                for (const key of Object.keys(row)) {
+                    const td = document.createElement('td');
+                    td.textContent = row[key];
+                    td.style.border = '1px solid black';
+                    td.style.padding = '2px'; // Adjust padding
+                    td.style.lineHeight = '1'; // Adjust line-height
+                    tr.appendChild(td);
+                }
+            }
+
+
+        }
+
+        init();
+    </script>
+</body>
+</html>
