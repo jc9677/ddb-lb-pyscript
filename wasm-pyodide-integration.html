@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DuckDB-WASM with Pyodide</title>
+</head>
+<body>
+    <div id="output"></div>
+    
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
+    <script type="module">
+        import * as duckdbWasm from "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.1-dev106.0/+esm";
+        
+        async function init() {
+            // Initialize Pyodide
+            let pyodide = await loadPyodide();
+            await pyodide.loadPackage("numpy");
+            
+            // Initialize DuckDB
+            const JSDELIVR_BUNDLES = duckdbWasm.getJsDelivrBundles();
+            const bundle = await duckdbWasm.selectBundle(JSDELIVR_BUNDLES);
+            const worker_url = URL.createObjectURL(
+                new Blob([`importScripts("${bundle.mainWorker}");`], {
+                    type: "text/javascript",
+                })
+            );
+            
+            const worker = new Worker(worker_url);
+            const logger = new duckdbWasm.ConsoleLogger();
+            const db = new duckdbWasm.AsyncDuckDB(logger, worker);
+            await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+            const conn = await db.connect();
+            
+            // Make DuckDB connection available to Python
+            window.duckdb_conn = conn;
+            
+            // Create Python wrapper functions
+            await pyodide.runPythonAsync(`
+                from pyodide.ffi import create_proxy
+                import numpy as np
+
+                def query_duckdb(sql, params=None):
+                    conn = create_proxy(duckdb_conn)
+                    if params:
+                        result = conn.query(sql, params).then(lambda x: x.toArray())
+                    else:
+                        result = conn.query(sql).then(lambda x: x.toArray())
+                    return result.then(lambda x: np.array(x))
+            `);
+            
+            // Test the integration
+            const result = await pyodide.runPythonAsync(`
+                # Install and load spatial extension
+                query_duckdb("INSTALL spatial;")
+                query_duckdb("LOAD spatial;")
+                
+                # Run a test query
+                result = query_duckdb("SELECT * FROM generate_series(0, 5) AS t(v);")
+                result.tolist()
+            `);
+            
+            document.getElementById('output').textContent = JSON.stringify(result, null, 2);
+        }
+        
+        init();
+    </script>
+</body>
+</html>
