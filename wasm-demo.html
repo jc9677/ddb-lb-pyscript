@@ -46,7 +46,7 @@
         await conn.query("INSTALL spatial;");
         // load the spatial extension
         await conn.query("LOAD spatial;");
-        await conn.query("SELECT * FROM duckdb_extensions;").then((res) => {
+        await conn.query("SELECT * FROM duckdb_extensions();").then((res) => {
           console.log(res);
         });
         // Prepare query
