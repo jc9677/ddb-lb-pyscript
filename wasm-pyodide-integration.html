@@ -30,26 +30,30 @@
             await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
             const conn = await db.connect();
             
-            // Expose connection to Python global namespace
             pyodide.globals.set('duckdb_conn', conn);
             
             await pyodide.runPythonAsync(`
                 from pyodide.ffi import create_proxy, to_js
                 import numpy as np
-
-                def query_duckdb(sql, params=None):
+                
+                async def query_duckdb(sql, params=None):
                     if params:
-                        result = duckdb_conn.query(sql, to_js(params)).then(lambda x: x.toArray())
+                        result = await duckdb_conn.query(sql, to_js(params))
                     else:
-                        result = duckdb_conn.query(sql).then(lambda x: x.toArray())
-                    return result.then(lambda x: np.array(x))
+                        result = await duckdb_conn.query(sql)
+                    return np.array(await result.toArray())
             `);
             
             const result = await pyodide.runPythonAsync(`
-                query_duckdb("INSTALL spatial;")
-                query_duckdb("LOAD spatial;")
-                result = query_duckdb("SELECT * FROM generate_series(0, 5) AS t(v);")
-                result.tolist()
+                import asyncio
+                
+                async def run_queries():
+                    await query_duckdb("INSTALL spatial;")
+                    await query_duckdb("LOAD spatial;")
+                    result = await query_duckdb("SELECT * FROM generate_series(0, 5) AS t(v);")
+                    return result.tolist()
+                
+                asyncio.run(run_queries())
             `);
             
             document.getElementById('output').textContent = JSON.stringify(result, null, 2);
