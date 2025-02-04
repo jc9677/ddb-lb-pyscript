@@ -40,6 +40,8 @@
       getDb().then(async (db) => {
         // Create a new connection
         const conn = await db.connect();
+        // 
+        console.log("Connected to DuckDB");
         // Prepare query
         const stmt = await conn.prepare(
           `SELECT v + ? FROM generate_series(0, 10000) AS t(v);`
