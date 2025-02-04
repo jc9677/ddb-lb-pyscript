@@ -32,9 +32,10 @@
             
             pyodide.globals.set('duckdb_conn', conn);
             
-            await pyodide.runPythonAsync(`
+            const result = await pyodide.runPythonAsync(`
                 from pyodide.ffi import create_proxy, to_js
                 import numpy as np
+                import asyncio
                 
                 async def query_duckdb(sql, params=None):
                     if params:
@@ -42,18 +43,15 @@
                     else:
                         result = await duckdb_conn.query(sql)
                     return np.array(await result.toArray())
-            `);
-            
-            const result = await pyodide.runPythonAsync(`
-                import asyncio
-                
+
                 async def run_queries():
                     await query_duckdb("INSTALL spatial;")
                     await query_duckdb("LOAD spatial;")
                     result = await query_duckdb("SELECT * FROM generate_series(0, 5) AS t(v);")
                     return result.tolist()
-                
-                asyncio.run(run_queries())
+
+                loop = asyncio.get_event_loop()
+                loop.run_until_complete(run_queries())
             `);
             
             document.getElementById('output').textContent = JSON.stringify(result, null, 2);
